@@ -207,8 +207,16 @@ async function handleSubmit() {
       await faultApi.update(props.model.id, rest)
       ElMessage.success('故障登记信息已更新')
     } else {
-      await faultApi.create(payload)
-      ElMessage.success('故障登记成功, 路灯状态已更新为故障')
+      const created = await faultApi.create(payload)
+      const responsibility = created?.responsibility
+      if (responsibility) {
+        const target = responsibility.responsible_type === 'supplier'
+          ? `厂家(${responsibility.responsible_name})`
+          : '自有班组'
+        ElMessage.success(`故障登记成功, 已自动判定责任方: ${target}`)
+      } else {
+        ElMessage.success('故障登记成功, 路灯状态已更新为故障')
+      }
     }
     emit('update:modelValue', false)
     emit('saved')

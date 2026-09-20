@@ -32,6 +32,12 @@ const routes = [
         meta: { title: '维修记录录入', icon: 'Tools' },
       },
       {
+        path: 'warranty',
+        name: 'warranty',
+        component: () => import('@/views/warranty/WarrantyView.vue'),
+        meta: { title: '质保与责任方', icon: 'Medal' },
+      },
+      {
         path: 'status',
         name: 'status',
         component: () => import('@/views/status/StatusLampView.vue'),

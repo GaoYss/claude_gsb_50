@@ -82,6 +82,14 @@ func canTransitTo(from, to string) bool {
 	}
 }
 
+// ResponsibilityInfo 是故障责任方判定的摘要, 由质保模块在登记故障时填充, 不落库。
+type ResponsibilityInfo struct {
+	ResponsibleType string `json:"responsible_type"` // supplier: 厂家 / own_team: 自有班组
+	ResponsibleName string `json:"responsible_name"` // 厂家名称或"自有班组"
+	Component       string `json:"component"`        // 责任部件: luminaire / pole
+	InWarranty      bool   `json:"in_warranty"`      // 故障发生时是否处于质保期
+}
+
 // Fault 故障登记记录, 串联路灯台账与维修记录。
 type Fault struct {
 	ID             uint       `gorm:"primaryKey" json:"id"`
@@ -101,8 +109,12 @@ type Fault struct {
 	LatestRepairID *uint      `json:"latest_repair_id"`
 	ClosedAt       *time.Time `json:"closed_at"`
 	CloseRemark    string     `gorm:"size:255" json:"close_remark"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+
+	// Responsibility 责任方判定摘要, 登记时由质保模块填充, 不落库。
+	Responsibility *ResponsibilityInfo `gorm:"-" json:"responsibility,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName 指定表名。

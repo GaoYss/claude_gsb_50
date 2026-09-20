@@ -31,15 +31,27 @@ type LampPort interface {
 	UpdateRunStatus(ctx context.Context, id uint, status string) error
 }
 
+// ResponsibilityDecider 由质保模块实现, 故障登记成功后自动判定责任方。
+type ResponsibilityDecider interface {
+	DecideForFault(ctx context.Context, entity *Fault) (*ResponsibilityInfo, error)
+}
+
 // Service 承载故障登记的业务规则, 并向维修模块提供故障状态流转能力。
 type Service struct {
-	repo  *Repository
-	lamps LampPort
+	repo    *Repository
+	lamps   LampPort
+	decider ResponsibilityDecider
 }
 
 // NewService 构造故障登记服务。
 func NewService(repo *Repository, lamps LampPort) *Service {
 	return &Service{repo: repo, lamps: lamps}
+}
+
+// SetResponsibilityDecider 注入责任方判定器。
+// 在 bootstrap 中装配, 以避免故障模块与质保模块之间的构造顺序耦合。
+func (s *Service) SetResponsibilityDecider(decider ResponsibilityDecider) {
+	s.decider = decider
 }
 
 // Repository 暴露仓储, 供 bootstrap 装配其它模块所需的端口。
@@ -133,6 +145,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Fault, error)
 
 	if err := s.syncLampStatus(ctx, device.ID); err != nil {
 		slog.Warn("同步路灯运行状态失败", "lamp_id", device.ID, "fault_no", entity.FaultNo, "error", err)
+	}
+
+	// 登记成功后自动判定责任方: 质保期内指派厂家, 超期转自有班组。
+	// 判定失败不阻断故障登记, 仅记录日志。
+	if s.decider != nil {
+		info, err := s.decider.DecideForFault(ctx, entity)
+		if err != nil {
+			slog.Warn("判定故障责任方失败", "fault_no", entity.FaultNo, "error", err)
+		} else {
+			entity.Responsibility = info
+		}
 	}
 	return entity, nil
 }

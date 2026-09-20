@@ -41,6 +41,29 @@
           <el-descriptions-item label="功率">{{ detail.lamp.power ? `${detail.lamp.power} W` : '-' }}</el-descriptions-item>
         </el-descriptions>
 
+        <el-descriptions v-if="assignment" class="drawer-block" :column="2" border size="small" title="责任方判定">
+          <el-descriptions-item label="责任方">
+            <StatusTag :dict="RESPONSIBLE_TYPE" :value="assignment.responsible_type" />
+          </el-descriptions-item>
+          <el-descriptions-item label="责任部件">
+            <StatusTag :dict="WARRANTY_COMPONENT" :value="assignment.component" />
+          </el-descriptions-item>
+          <el-descriptions-item label="厂家">{{ assignment.supplier_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="处理状态">
+            <StatusTag :dict="ASSIGNMENT_STATUS" :value="assignment.status" />
+          </el-descriptions-item>
+          <el-descriptions-item label="厂家联系人">{{ assignment.contact_person || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="联系电话">{{ assignment.contact_phone || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="响应时限">{{ formatDateTime(assignment.deadline) }}</el-descriptions-item>
+          <el-descriptions-item v-if="assignment.reminded_at" label="超时提醒时间">
+            {{ formatDateTime(assignment.reminded_at) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="判定依据" :span="2">{{ assignment.reason || '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="assignment.transferred_at" label="转自有班组" :span="2">
+            {{ formatDateTime(assignment.transferred_at) }} · {{ assignment.transfer_remark || '已接手' }}
+          </el-descriptions-item>
+        </el-descriptions>
+
         <div class="section-title drawer-block">处理时间线</div>
         <el-timeline v-if="detail.timeline?.length">
           <el-timeline-item
@@ -83,7 +106,8 @@
 import { ref } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { statusApi } from '@/api/status'
-import { FAULT_LEVEL, FAULT_SOURCE, FAULT_STATUS, REPAIR_RESULT, REPAIR_STATUS, RUN_STATUS, TIMELINE_STAGE, dictLabel, dictType } from '@/constants/dict'
+import { warrantyApi } from '@/api/warranty'
+import { ASSIGNMENT_STATUS, FAULT_LEVEL, FAULT_SOURCE, FAULT_STATUS, REPAIR_RESULT, REPAIR_STATUS, RESPONSIBLE_TYPE, RUN_STATUS, TIMELINE_STAGE, WARRANTY_COMPONENT, dictLabel, dictType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps({
@@ -95,17 +119,24 @@ defineEmits(['update:modelValue'])
 
 const loading = ref(false)
 const detail = ref({ fault: null, lamp: null, repairs: [], timeline: [] })
+const assignment = ref(null)
 
-// 打开抽屉时按故障 ID 拉取完整处理链路。
+// 打开抽屉时按故障 ID 拉取完整处理链路与责任方判定。
 async function load() {
   if (!props.faultId) return
   loading.value = true
+  assignment.value = null
   try {
     detail.value = await statusApi.track({ fault_id: props.faultId })
   } catch (error) {
     detail.value = { fault: null, lamp: null, repairs: [], timeline: [] }
   } finally {
     loading.value = false
+  }
+  try {
+    assignment.value = await warrantyApi.assignmentByFault(props.faultId, { silent: true })
+  } catch (error) {
+    assignment.value = null
   }
 }
 </script>

@@ -52,6 +52,32 @@ export const TIMELINE_STAGE = {
   closed: { label: '故障关闭', type: 'info' },
 }
 
+// 质保部件。
+export const WARRANTY_COMPONENT = {
+  luminaire: { label: '灯具', type: 'primary' },
+  pole: { label: '灯杆', type: 'info' },
+}
+
+// 质保状态。
+export const WARRANTY_STATE = {
+  active: { label: '在保', type: 'success' },
+  expiring: { label: '临期', type: 'warning' },
+  expired: { label: '已到期', type: 'danger' },
+}
+
+// 责任方类型。
+export const RESPONSIBLE_TYPE = {
+  supplier: { label: '厂家', type: 'primary' },
+  own_team: { label: '自有班组', type: 'warning' },
+}
+
+// 责任判定单状态。
+export const ASSIGNMENT_STATUS = {
+  pending: { label: '处理中', type: 'warning' },
+  overdue: { label: '厂家超时提醒', type: 'danger' },
+  transferred: { label: '已转自有班组', type: 'info' },
+}
+
 // 取字典项文案。
 export function dictLabel(dict, key, fallback = '-') {
   if (key === null || key === undefined || key === '') return fallback

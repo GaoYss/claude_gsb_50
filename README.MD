@@ -15,11 +15,12 @@
 | 模块 | 说明 | 关键能力 |
 | --- | --- | --- |
 | 路灯台账 | 路灯基础档案维护 | 编号/道路/运行状态/灯具类型筛选, 按道路与状态统计, 删除前校验未闭环故障 |
-| 故障登记 | 故障工单登记与流转 | 自动生成故障单号, 紧急程度分级, 状态机流转, 闭环关闭 |
+| 故障登记 | 故障工单登记与流转 | 自动生成故障单号, 紧急程度分级, 状态机流转, 闭环关闭, 登记时自动判定责任方 |
 | 维修记录录入 | 针对故障单登记维修过程 | 自动生成维修单号, 开工/完工时间, 耗材与费用, 四种维修结果 |
+| 质保与责任方 | 供应商档案、灯具/灯杆质保登记与责任方判定 | 质保起止与联系方式登记, 登记故障自动判定责任方(在保指派厂家/超期转自有班组), 厂家超时自动提醒并可转自有班组, 质保内维修占比与厂家超时概览 |
 | 维修状态查询 | 只读的综合看板与追踪视图 | 全局概览, 路灯级维修状态列表, 按故障单号/路灯编号的全链路时间线 |
 
-四个模块在后端是四个平级的独立包 (`internal/modules/{lamp,fault,repair,status}`), 在前端是四组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
+五个模块在后端是五个平级的独立包 (`internal/modules/{lamp,fault,repair,warranty,status}`), 在前端是五组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
 
 ---
 
@@ -45,6 +46,7 @@
 │   │   │   ├── lamp/                     #   路灯台账
 │   │   │   ├── fault/                    #   故障登记
 │   │   │   ├── repair/                   #   维修记录录入
+│   │   │   ├── warranty/                 #   质保与责任方
 │   │   │   └── status/                   #   维修状态查询(只读, 不建表)
 │   │   ├── response/                     # 统一响应信封 Envelope / PageData / OK / Fail
 │   ├── pkg/pagination/                   # 分页与排序参数(排序字段白名单)
@@ -68,6 +70,7 @@
 │   │       ├── lamp/LampListView.vue + components/LampFormDialog.vue
 │   │       ├── fault/FaultListView.vue + components/{FaultFormDialog,FaultDetailDrawer}.vue
 │   │       ├── repair/RepairListView.vue + components/{RepairFormDialog,FinishRepairDialog}.vue
+│   │       ├── warranty/WarrantyView.vue + components/{WarrantyFormDialog,SupplierFormDialog}.vue
 │   │       └── status/{StatusLampView,StatusTrackView}.vue
 │   ├── nginx.conf                        # 生产: SPA 回退 + /api 反向代理
 │   ├── Dockerfile
@@ -105,10 +108,11 @@ modules/<name>/
 lamp.New(db)                                   -> 路灯台账(无依赖)
 fault.New(db, lampService)                     -> 故障登记(读取路灯校验)
 repair.New(db, faultService)                   -> 维修记录(驱动故障状态流转)
+warranty.New(db, lampService)                  -> 质保与责任方(读取路灯档案, 监听故障登记)
 status.New(db, lampRepo, faultRepo, repairRepo)-> 维修状态查询(只读聚合)
 ```
 
-路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口, 避免构造函数循环依赖。
+路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口, 避免构造函数循环依赖。同理, 登记故障时需要质保模块自动判定责任方, 但 `fault` 不能依赖 `warranty`, 因此用 `faultService.SetResponsibilityDecider(warrantyModule.Service())` 在构造完成后回填判定端口。
 
 ### 3.3 统一响应与错误
 
@@ -284,6 +288,23 @@ go test ./...
 | POST | `/repairs/:id/finish` | 完工(写入完工时间与维修结果) |
 | DELETE | `/repairs/:id` | 删除(会重算故障的维修次数) |
 
+### 质保与责任方
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/warranties` | 质保登记分页查询(关键字/部件/质保状态: 在保/临期/已到期) |
+| POST | `/warranties` | 为灯具或灯杆登记质保(同一路灯同一部件唯一, 冲突 409) |
+| GET/PUT/DELETE | `/warranties/:id` | 质保详情 / 修改 / 删除 |
+| GET | `/warranties/suppliers` | 供应商分页查询 |
+| POST | `/warranties/suppliers` | 新增供应商(名称唯一) |
+| GET | `/warranties/suppliers/options` | 供应商下拉选项 |
+| PUT/DELETE | `/warranties/suppliers/:id` | 修改 / 删除(被质保引用时 409) |
+| GET | `/warranties/assignments` | 责任判定单分页查询(责任方/状态/部件) |
+| GET | `/warranties/assignments/fault/:faultId` | 某故障的责任判定单 |
+| POST | `/warranties/assignments/:id/transfer` | 厂家超时后转自有班组接手 |
+| GET | `/warranties/overview` | 概览: 质保内维修占比、厂家响应超时数量、质保状态分布 |
+| GET | `/warranties/meta` | 字典: 部件/责任方/判定状态 |
+
 ### 维修状态查询
 
 | 方法 | 路径 | 说明 |
@@ -304,6 +325,11 @@ go test ./...
 - **删除维修记录** 会重算故障的 `repair_count` / `latest_repair_id`, 次数归零时把故障从 `维修中` 回退到 `待处理`。
 - **删除路灯** 会被未闭环故障拦截; **删除故障** 要求已关闭且没有维修记录。
 - **逾期判定**: 上报超过 24 小时仍未闭环的故障计入概览的逾期清单。
+- **责任部件判定**: 故障类型为 `灯杆倾斜` 时归灯杆质保, 其余故障类型归灯具质保。
+- **责任方自动判定**: 登记故障时按责任部件查询质保登记 —— 质保期内(按上报时间落在质保起止日期内)指派厂家并生成 24 小时响应时限; 未登记质保或质保已到期则转自有班组。判定结果随故障登记响应一并返回。
+- **厂家超时提醒**: 厂家负责的判定单超过响应时限仍未处理时, 在判定单列表/概览查询时自动置为 `已超时提醒` 并记录提醒时间; 此时可手动 `转自有班组接手`(幂等, 重复转派返回 409)。
+- **质保状态推算**: 按当前日期分为 `在保` / `临期(30 天内到期)` / `已到期`, 不落库, 列表与概览实时计算。
+- **删除供应商** 会被引用它的质保记录拦截; **删除质保** 不影响已生成的责任判定单(厂家与联系方式已快照)。
 
 ---
 
@@ -313,6 +339,7 @@ go test ./...
 
 - 6 条道路, 每条 5 盏路灯, 共 **30 盏**, 覆盖 `正常 / 故障 / 维修中 / 停用` 四种运行状态;
 - **14 条故障**, 覆盖待处理 / 维修中 / 已修复 / 已关闭四种状态, 其中包含 2 条已逾期;
-- **12 条维修记录**, 含进行中与已完工, 带耗材、费用与维修结果。
+- **12 条维修记录**, 含进行中与已完工, 带耗材、费用与维修结果;
+- **3 家供应商** 与 **44 条质保登记**(灯具 + 灯杆, 覆盖在保 / 临期 / 已到期), 每条故障自动生成 **14 条责任判定单**, 含厂家处理中、超时待提醒与已转自有班组等形态。
 
 想从空库开始, 把 `APP_SEED` 设为 `false`, 或删除数据卷后重启。

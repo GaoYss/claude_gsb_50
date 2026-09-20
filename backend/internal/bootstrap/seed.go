@@ -10,6 +10,7 @@ import (
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
 	"streetlight/internal/modules/repair"
+	"streetlight/internal/modules/warranty"
 )
 
 const hour = time.Hour
@@ -146,10 +147,18 @@ func seed(db *gorm.DB) error {
 		return err
 	}
 
+	supplierCount, warrantyCount, assignmentCount, err := seedWarranty(db, now, lamps, faults)
+	if err != nil {
+		return err
+	}
+
 	slog.Info("演示数据初始化完成",
 		"路灯", len(lamps),
 		"故障", len(faults),
 		"维修记录", len(repairs),
+		"供应商", supplierCount,
+		"质保登记", warrantyCount,
+		"责任判定", assignmentCount,
 	)
 	return nil
 }
@@ -375,4 +384,171 @@ func syncSeedLampStatus(db *gorm.DB, faults []fault.Fault, lamps []lamp.Lamp) er
 		}
 	}
 	return nil
+}
+
+// seedWarranty 写入供应商、灯具/灯杆质保登记与故障责任判定演示数据。
+// 返回供应商、质保登记、责任判定单数量。
+func seedWarranty(db *gorm.DB, now time.Time, lamps []lamp.Lamp, faults []fault.Fault) (int, int, int, error) {
+	suppliers := []warranty.Supplier{
+		{Name: "明辉照明设备有限公司", ContactPerson: "周明", ContactPhone: "13811112222", Email: "service@minghui.example.com", Address: "高新区光电产业园 3 号楼", Remark: "灯具与驱动电源供应商"},
+		{Name: "华立灯杆制造有限公司", ContactPerson: "吴立", ContactPhone: "13933334444", Email: "after@huali.example.com", Address: "经开区五金机电城 12 栋", Remark: "灯杆与基础件供应商"},
+		{Name: "晨曦光电科技有限公司", ContactPerson: "陈晓", ContactPhone: "13755556666", Email: "support@chenxi.example.com", Address: "城东区科创路 88 号", Remark: "控制箱与通讯模块供应商"},
+	}
+	if err := db.Create(&suppliers).Error; err != nil {
+		return 0, 0, 0, fmt.Errorf("写入供应商演示数据失败: %w", err)
+	}
+
+	// 灯具质保: 除 LD-00009(下标 8) 外全部登记, 覆盖在保 / 临期 / 已到期三种形态。
+	// 灯杆质保: 前 15 盏登记, 同样覆盖三种形态。
+	records := make([]warranty.Warranty, 0, len(lamps)*2)
+	for index, device := range lamps {
+		if index != 8 {
+			end := now.AddDate(1, 0, 0)
+			switch index {
+			case 2:
+				end = now.AddDate(0, 0, -10)
+			case 6:
+				end = now.AddDate(0, 0, -20)
+			case 9:
+				end = now.AddDate(0, 0, -30)
+			case 16:
+				end = now.AddDate(0, 0, 18)
+			case 23:
+				end = now.AddDate(0, 0, 25)
+			}
+			supplier := suppliers[index%len(suppliers)]
+			start := now.AddDate(-1, 0, 0)
+			endDate := end
+			records = append(records, warranty.Warranty{
+				LampID:        device.ID,
+				LampCode:      device.Code,
+				Component:     warranty.ComponentLuminaire,
+				SupplierID:    &supplier.ID,
+				SupplierName:  supplier.Name,
+				ContactPerson: supplier.ContactPerson,
+				ContactPhone:  supplier.ContactPhone,
+				StartDate:     &start,
+				EndDate:       &endDate,
+				Remark:        "灯具整灯质保",
+			})
+		}
+		if index < 15 {
+			end := now.AddDate(1, 6, 0)
+			switch index {
+			case 4:
+				end = now.AddDate(0, 0, -5)
+			case 11:
+				end = now.AddDate(0, 0, 15)
+			}
+			supplier := suppliers[(index+1)%len(suppliers)]
+			start := now.AddDate(-1, 0, 0)
+			endDate := end
+			records = append(records, warranty.Warranty{
+				LampID:        device.ID,
+				LampCode:      device.Code,
+				Component:     warranty.ComponentPole,
+				SupplierID:    &supplier.ID,
+				SupplierName:  supplier.Name,
+				ContactPerson: supplier.ContactPerson,
+				ContactPhone:  supplier.ContactPhone,
+				StartDate:     &start,
+				EndDate:       &endDate,
+				Remark:        "灯杆结构质保",
+			})
+		}
+	}
+	if err := db.Create(&records).Error; err != nil {
+		return 0, 0, 0, fmt.Errorf("写入质保登记演示数据失败: %w", err)
+	}
+
+	byLampComponent := make(map[string]*warranty.Warranty, len(records))
+	for index := range records {
+		record := &records[index]
+		byLampComponent[fmt.Sprintf("%d:%s", record.LampID, record.Component)] = record
+	}
+
+	// 每条演示故障对应一条责任判定: 质保期内指派厂家, 超期 / 未登记转自有班组;
+	// 其中两条厂家单已超响应时限(等待自动提醒), 两条已转自有班组接手。
+	plans := []struct {
+		responsible string
+		assignedAgo time.Duration
+		transferred bool
+		remark      string
+	}{
+		{warranty.ResponsibleSupplier, 5*time.Hour + 30*time.Minute, false, ""},
+		{warranty.ResponsibleSupplier, 29 * time.Hour, false, ""},
+		{warranty.ResponsibleOwnTeam, 39 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 2*time.Hour + 30*time.Minute, false, ""},
+		{warranty.ResponsibleSupplier, 4 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 25 * time.Hour, false, ""},
+		{warranty.ResponsibleOwnTeam, 49 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 71 * time.Hour, true, "厂家 24 小时未响应, 转市政照明二班接手"},
+		{warranty.ResponsibleOwnTeam, 95 * time.Hour, false, ""},
+		{warranty.ResponsibleOwnTeam, 119 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 149 * time.Hour, true, "厂家配件调拨超时, 转市政照明一班接手"},
+		{warranty.ResponsibleSupplier, 9 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 7 * time.Hour, false, ""},
+		{warranty.ResponsibleSupplier, 14 * time.Hour, false, ""},
+	}
+
+	assignments := make([]warranty.FaultAssignment, 0, len(faults))
+	for index, item := range faults {
+		plan := plans[index]
+		component := warranty.ComponentForFaultType(item.FaultType)
+		record := byLampComponent[fmt.Sprintf("%d:%s", item.LampID, component)]
+
+		assignedAt := now.Add(-plan.assignedAgo)
+		assignment := warranty.FaultAssignment{
+			FaultID:         item.ID,
+			FaultNo:         item.FaultNo,
+			LampID:          item.LampID,
+			LampCode:        item.LampCode,
+			Component:       component,
+			ResponsibleType: plan.responsible,
+			Status:          warranty.AssignPending,
+			AssignedAt:      assignedAt,
+			Deadline:        assignedAt.Add(warranty.ResponseTimeout),
+		}
+
+		switch plan.responsible {
+		case warranty.ResponsibleSupplier:
+			assignment.InWarranty = true
+			if record != nil {
+				assignment.WarrantyID = &record.ID
+				assignment.SupplierID = record.SupplierID
+				assignment.SupplierName = record.SupplierName
+				assignment.ContactPerson = record.ContactPerson
+				assignment.ContactPhone = record.ContactPhone
+				assignment.Reason = fmt.Sprintf("%s质保期内(%s ~ %s), 指派厂家处理",
+					warranty.ComponentLabel(component),
+					record.StartDate.Format("2006-01-02"),
+					record.EndDate.Format("2006-01-02"))
+			}
+		default:
+			if record != nil {
+				assignment.WarrantyID = &record.ID
+				assignment.SupplierID = record.SupplierID
+				assignment.SupplierName = record.SupplierName
+				assignment.Reason = fmt.Sprintf("%s质保已于 %s 到期, 由自有班组处理",
+					warranty.ComponentLabel(component), record.EndDate.Format("2006-01-02"))
+			} else {
+				assignment.Reason = fmt.Sprintf("路灯 %s 未登记%s质保, 由自有班组处理",
+					item.LampCode, warranty.ComponentLabel(component))
+			}
+		}
+
+		if plan.transferred {
+			transferredAt := assignment.Deadline.Add(time.Hour)
+			assignment.ResponsibleType = warranty.ResponsibleOwnTeam
+			assignment.Status = warranty.AssignTransferred
+			assignment.TransferredAt = &transferredAt
+			assignment.TransferRemark = plan.remark
+		}
+		assignments = append(assignments, assignment)
+	}
+	if err := db.Create(&assignments).Error; err != nil {
+		return 0, 0, 0, fmt.Errorf("写入责任判定演示数据失败: %w", err)
+	}
+
+	return len(suppliers), len(records), len(assignments), nil
 }
