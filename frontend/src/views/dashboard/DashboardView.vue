@@ -54,6 +54,22 @@
         color="#409eff"
         :hint="`故障累计 ${overview.fault.total} 条`"
       />
+      <StatCard
+        label="质保内维修占比"
+        :value="warrantyRateText"
+        suffix=""
+        icon="DocumentChecked"
+        color="#e6a23c"
+        :hint="`厂家责任 ${overview.warranty.in_warranty_total} 条 / 自有班组 ${overview.warranty.out_warranty_total} 条`"
+      />
+      <StatCard
+        label="厂家响应超时"
+        :value="overview.warranty.response_overdue"
+        suffix="条"
+        icon="BellFilled"
+        color="#f56c6c"
+        :hint="`厂家未闭环 ${overview.warranty.manufacturer_open} 条 / 已转接手 ${overview.warranty.taken_over_total} 条`"
+      />
     </div>
 
     <el-row :gutter="16">
@@ -145,6 +161,15 @@ const emptyOverview = () => ({
   lamp: { total: 0, road_count: 0, by_run_status: {} },
   fault: { total: 0, open_total: 0, by_status: {}, today_reported: 0, overdue_total: 0 },
   repair: { total: 0, ongoing_total: 0, finished_total: 0, today_finished: 0, average_duration_hours: 0, total_cost: 0 },
+  warranty: {
+    claim_total: 0,
+    in_warranty_total: 0,
+    out_warranty_total: 0,
+    in_warranty_rate: 0,
+    manufacturer_open: 0,
+    response_overdue: 0,
+    taken_over_total: 0,
+  },
   fault_by_type: [],
   fault_by_level: [],
   top_roads: [],
@@ -154,6 +179,8 @@ const emptyOverview = () => ({
 })
 
 const overview = ref(emptyOverview())
+
+const warrantyRateText = computed(() => `${(Number(overview.value.warranty.in_warranty_rate || 0) * 100).toFixed(1)}%`)
 
 const runStatusItems = computed(() =>
   Object.entries(RUN_STATUS).map(([key, item]) => ({

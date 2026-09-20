@@ -44,6 +44,36 @@ export const REPAIR_RESULT = {
   unfixable: { label: '无法修复', type: 'danger' },
 }
 
+// 质保部件。
+export const WARRANTY_COMPONENT = {
+  lamp: { label: '灯具', type: 'primary' },
+  pole: { label: '灯杆', type: 'warning' },
+}
+
+// 责任方。
+export const WARRANTY_PARTY = {
+  manufacturer: { label: '厂家', type: 'warning' },
+  internal: { label: '自有班组', type: 'success' },
+}
+
+// 责任工单状态。
+export const CLAIM_STATUS = {
+  pending: { label: '待厂家响应', type: 'warning' },
+  processing: { label: '厂家处理中', type: 'primary' },
+  overdue: { label: '响应超时', type: 'danger' },
+  internal: { label: '自有班组处理中', type: 'success' },
+  taken_over: { label: '自有班组接手', type: 'info' },
+  closed: { label: '已闭环', type: 'info' },
+}
+
+// 质保登记中单侧部件的状态。
+export const WARRANTY_STATE = {
+  active: { label: '质保中', type: 'success' },
+  expired: { label: '已超期', type: 'danger' },
+  expiring: { label: '30天内到期', type: 'warning' },
+  unregistered: { label: '未登记', type: 'info' },
+}
+
 // 追踪时间线的节点名称。
 export const TIMELINE_STAGE = {
   reported: { label: '故障登记', type: 'primary' },

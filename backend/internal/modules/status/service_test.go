@@ -14,13 +14,15 @@ import (
 	"streetlight/internal/modules/lamp"
 	"streetlight/internal/modules/repair"
 	"streetlight/internal/modules/status"
+	"streetlight/internal/modules/warranty"
 )
 
 type harness struct {
-	lamps   *lamp.Service
-	faults  *fault.Service
-	repairs *repair.Service
-	status  *status.Service
+	lamps     *lamp.Service
+	faults    *fault.Service
+	repairs   *repair.Service
+	status    *status.Service
+	warrantys *warranty.Service
 }
 
 func newHarness(t *testing.T) *harness {
@@ -36,7 +38,10 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 
-	require.NoError(t, db.AutoMigrate(&lamp.Lamp{}, &fault.Fault{}, &repair.Repair{}))
+	require.NoError(t, db.AutoMigrate(
+		&lamp.Lamp{}, &fault.Fault{}, &repair.Repair{},
+		&warranty.Supplier{}, &warranty.Warranty{}, &warranty.WarrantyClaim{},
+	))
 
 	lampRepository := lamp.NewRepository(db)
 	lampService := lamp.NewService(lampRepository)
@@ -48,11 +53,16 @@ func newHarness(t *testing.T) *harness {
 	repairRepository := repair.NewRepository(db)
 	repairService := repair.NewService(repairRepository, faultService)
 
+	warrantyRepository := warranty.NewRepository(db)
+	warrantyService := warranty.NewService(warrantyRepository, lampRepository, faultRepository)
+	faultService.SetWarrantyHook(warrantyService)
+
 	return &harness{
-		lamps:   lampService,
-		faults:  faultService,
-		repairs: repairService,
-		status:  status.NewService(db, lampRepository, faultRepository, repairRepository),
+		lamps:     lampService,
+		faults:    faultService,
+		repairs:   repairService,
+		status:    status.NewService(db, lampRepository, faultRepository, repairRepository, warrantyRepository),
+		warrantys: warrantyService,
 	}
 }
 

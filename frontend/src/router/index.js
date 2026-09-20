@@ -32,6 +32,24 @@ const routes = [
         meta: { title: '维修记录录入', icon: 'Tools' },
       },
       {
+        path: 'warranties/suppliers',
+        name: 'warranty-suppliers',
+        component: () => import('@/views/warranty/SupplierListView.vue'),
+        meta: { title: '质保供应商', icon: 'OfficeBuilding' },
+      },
+      {
+        path: 'warranties',
+        name: 'warranties',
+        component: () => import('@/views/warranty/WarrantyListView.vue'),
+        meta: { title: '质保登记', icon: 'DocumentChecked' },
+      },
+      {
+        path: 'warranties/claims',
+        name: 'warranty-claims',
+        component: () => import('@/views/warranty/ClaimListView.vue'),
+        meta: { title: '故障责任工单', icon: 'Tickets' },
+      },
+      {
         path: 'status',
         name: 'status',
         component: () => import('@/views/status/StatusLampView.vue'),

@@ -31,15 +31,40 @@ type LampPort interface {
 	UpdateRunStatus(ctx context.Context, id uint, status string) error
 }
 
+// WarrantyHook 由质保与责任方管理模块实现, 故障模块通过它派发责任判定相关事件。
+// 钩子失败只记录告警, 不阻断故障登记主流程, 与路灯状态联动保持一致的容错策略。
+type WarrantyHook interface {
+	OnFaultCreated(ctx context.Context, entity *Fault) error
+	OnFaultClosed(ctx context.Context, faultID uint) error
+	OnFaultDeleted(ctx context.Context, faultID uint) error
+	OnRepairStarted(ctx context.Context, faultID uint) error
+}
+
 // Service 承载故障登记的业务规则, 并向维修模块提供故障状态流转能力。
 type Service struct {
-	repo  *Repository
-	lamps LampPort
+	repo     *Repository
+	lamps    LampPort
+	warranty WarrantyHook
 }
 
 // NewService 构造故障登记服务。
 func NewService(repo *Repository, lamps LampPort) *Service {
 	return &Service{repo: repo, lamps: lamps}
+}
+
+// SetWarrantyHook 注入质保责任方事件钩子, 在 bootstrap 中装配以避免构造循环依赖。
+func (s *Service) SetWarrantyHook(hook WarrantyHook) {
+	s.warranty = hook
+}
+
+// notifyWarranty 派发质保事件, 未装配钩子或失败时不影响主流程。
+func (s *Service) notifyWarranty(ctx context.Context, action string, fn func(hook WarrantyHook) error) {
+	if s.warranty == nil {
+		return
+	}
+	if err := fn(s.warranty); err != nil {
+		slog.Warn("质保责任方联动失败", "action", action, "error", err)
+	}
 }
 
 // Repository 暴露仓储, 供 bootstrap 装配其它模块所需的端口。
@@ -134,6 +159,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Fault, error)
 	if err := s.syncLampStatus(ctx, device.ID); err != nil {
 		slog.Warn("同步路灯运行状态失败", "lamp_id", device.ID, "fault_no", entity.FaultNo, "error", err)
 	}
+
+	// 自动判定质保责任方: 质保期内指派厂家, 超期或非质保部件转自有班组。
+	s.notifyWarranty(ctx, "fault_created", func(hook WarrantyHook) error {
+		return hook.OnFaultCreated(ctx, entity)
+	})
 	return entity, nil
 }
 
@@ -211,6 +241,9 @@ func (s *Service) Close(ctx context.Context, id uint, req CloseRequest) (*Fault,
 	if err := s.syncLampStatus(ctx, entity.LampID); err != nil {
 		slog.Warn("同步路灯运行状态失败", "lamp_id", entity.LampID, "fault_no", entity.FaultNo, "error", err)
 	}
+	s.notifyWarranty(ctx, "fault_closed", func(hook WarrantyHook) error {
+		return hook.OnFaultClosed(ctx, entity.ID)
+	})
 	return entity, nil
 }
 
@@ -229,6 +262,9 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
+	s.notifyWarranty(ctx, "fault_deleted", func(hook WarrantyHook) error {
+		return hook.OnFaultDeleted(ctx, entity.ID)
+	})
 	if err := s.syncLampStatus(ctx, entity.LampID); err != nil {
 		slog.Warn("同步路灯运行状态失败", "lamp_id", entity.LampID, "error", err)
 	}
@@ -262,7 +298,13 @@ func (s *Service) OnRepairStarted(ctx context.Context, faultID uint, repairID ui
 	if err := s.repo.Update(ctx, entity); err != nil {
 		return err
 	}
-	return s.syncLampStatus(ctx, entity.LampID)
+	if err := s.syncLampStatus(ctx, entity.LampID); err != nil {
+		return err
+	}
+	s.notifyWarranty(ctx, "repair_started", func(hook WarrantyHook) error {
+		return hook.OnRepairStarted(ctx, entity.ID)
+	})
+	return nil
 }
 
 // OnRepairFinished 维修完成: 结果为已修复时故障转为已修复, 否则保持维修中。

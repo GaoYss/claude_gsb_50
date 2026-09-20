@@ -53,18 +53,30 @@ type RepairSummary struct {
 	TotalCost         float64 `json:"total_cost"`
 }
 
+// WarrantySummary 质保与责任方概览: 质保内维修占比与厂家响应超时数量。
+type WarrantySummary struct {
+	ClaimTotal       int64   `json:"claim_total"`        // 已判定责任的故障工单总数
+	InWarrantyTotal  int64   `json:"in_warranty_total"`  // 质保期内(厂家责任)工单数量
+	OutWarrantyTotal int64   `json:"out_warranty_total"` // 超期/非质保部件(自有班组)工单数量
+	InWarrantyRate   float64 `json:"in_warranty_rate"`   // 质保内维修占比, 0~1
+	ManufacturerOpen int64   `json:"manufacturer_open"`  // 厂家尚未闭环
+	ResponseOverdue  int64   `json:"response_overdue"`   // 厂家响应超时数量
+	TakenOverTotal   int64   `json:"taken_over_total"`   // 累计转自有班组接手
+}
+
 // Overview 维修状态总览看板。
 type Overview struct {
-	Lamp          LampSummary  `json:"lamp"`
-	Fault         FaultSummary `json:"fault"`
-	Repair        RepairSummary `json:"repair"`
-	FaultByType   []LabelCount  `json:"fault_by_type"`
-	FaultByLevel  []LabelCount  `json:"fault_by_level"`
-	TopRoads      []LabelCount  `json:"top_roads"`
-	RecentFaults  []FaultBrief  `json:"recent_faults"`
-	OverdueFaults []FaultBrief  `json:"overdue_faults"`
-	OverdueHours  float64       `json:"overdue_threshold_hours"`
-	GeneratedAt   time.Time     `json:"generated_at"`
+	Lamp          LampSummary     `json:"lamp"`
+	Fault         FaultSummary    `json:"fault"`
+	Repair        RepairSummary   `json:"repair"`
+	Warranty      WarrantySummary `json:"warranty"`
+	FaultByType   []LabelCount    `json:"fault_by_type"`
+	FaultByLevel  []LabelCount    `json:"fault_by_level"`
+	TopRoads      []LabelCount    `json:"top_roads"`
+	RecentFaults  []FaultBrief    `json:"recent_faults"`
+	OverdueFaults []FaultBrief    `json:"overdue_faults"`
+	OverdueHours  float64         `json:"overdue_threshold_hours"`
+	GeneratedAt   time.Time       `json:"generated_at"`
 }
 
 // LampStatusRow 是"维修状态查询"列表中的一行: 一盏路灯的当前维修进展。
@@ -101,10 +113,10 @@ type TimelineEvent struct {
 
 // TrackResult 是单条故障(或单盏路灯)的完整处理链路。
 type TrackResult struct {
-	SearchType    string            `json:"search_type"`
-	Lamp          *lamp.Lamp        `json:"lamp,omitempty"`
-	Fault         *fault.Fault      `json:"fault,omitempty"`
-	Repairs       []repair.Repair   `json:"repairs"`
-	Timeline      []TimelineEvent   `json:"timeline"`
-	RelatedFaults []FaultBrief      `json:"related_faults,omitempty"`
+	SearchType    string          `json:"search_type"`
+	Lamp          *lamp.Lamp      `json:"lamp,omitempty"`
+	Fault         *fault.Fault    `json:"fault,omitempty"`
+	Repairs       []repair.Repair `json:"repairs"`
+	Timeline      []TimelineEvent `json:"timeline"`
+	RelatedFaults []FaultBrief    `json:"related_faults,omitempty"`
 }

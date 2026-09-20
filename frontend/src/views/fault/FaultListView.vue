@@ -44,6 +44,21 @@
         <el-table-column label="处理状态" width="100">
           <template #default="{ row }"><StatusTag :dict="FAULT_STATUS" :value="row.status" /></template>
         </el-table-column>
+        <el-table-column label="责任方" width="110">
+          <template #default="{ row }">
+            <template v-if="claimMap[row.id]">
+              <StatusTag :dict="WARRANTY_PARTY" :value="claimMap[row.id].current_party || claimMap[row.id].party_type" />
+              <el-tag
+                v-if="claimMap[row.id].overdue"
+                type="danger"
+                size="small"
+                effect="dark"
+                class="overdue-flag"
+              >超时</el-tag>
+            </template>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="来源" width="100">
           <template #default="{ row }">{{ dictLabel(FAULT_SOURCE, row.source) }}</template>
         </el-table-column>
@@ -98,8 +113,9 @@ import FaultDetailDrawer from './components/FaultDetailDrawer.vue'
 import RepairFormDialog from '@/views/repair/components/RepairFormDialog.vue'
 import { faultApi } from '@/api/fault'
 import { lampApi } from '@/api/lamp'
+import { warrantyApi } from '@/api/warranty'
 import { useDictStore } from '@/stores/dict'
-import { FAULT_LEVEL, FAULT_SOURCE, FAULT_STATUS, dictLabel } from '@/constants/dict'
+import { FAULT_LEVEL, FAULT_SOURCE, FAULT_STATUS, WARRANTY_PARTY, dictLabel } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { useListPage } from '@/composables/useListPage'
 
@@ -107,7 +123,25 @@ const route = useRoute()
 const router = useRouter()
 const dictStore = useDictStore()
 
-const { loading, rows, total, query, load, search, reset, changePage, changePageSize } = useListPage(faultApi.list, {
+// 责任工单以故障 ID 为键, 在列表中展示当前责任方与厂家超时标记。
+const claimMap = ref({})
+
+async function fetchFaults(params) {
+  const data = await faultApi.list(params)
+  const ids = (data?.items ?? []).map((item) => item.id)
+  if (ids.length) {
+    try {
+      claimMap.value = await warrantyApi.claimsIndex(ids.join(','))
+    } catch (error) {
+      claimMap.value = {}
+    }
+  } else {
+    claimMap.value = {}
+  }
+  return data
+}
+
+const { loading, rows, total, query, load, search, reset, changePage, changePageSize } = useListPage(fetchFaults, {
   keyword: '',
   status: '',
   fault_type: '',
@@ -226,3 +260,9 @@ onMounted(async () => {
   await applyRouteQuery()
 })
 </script>
+
+<style scoped>
+.overdue-flag {
+  margin-left: 4px;
+}
+</style>

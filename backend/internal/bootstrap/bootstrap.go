@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,12 @@ type App struct {
 	db      *gorm.DB
 	engine  *gin.Engine
 	modules []module.Module
+	cancel  context.CancelFunc
+}
+
+// starter 由拥有后台任务的模块实现(如质保厂家响应超时巡检)。
+type starter interface {
+	Start(ctx context.Context)
 }
 
 // New 完成日志、数据库、数据迁移、演示数据与路由的初始化。
@@ -52,7 +59,14 @@ func New(cfg *config.Config) (*App, error) {
 		}
 	}
 
-	app := &App{config: cfg, db: db, modules: modules}
+	ctx, cancel := context.WithCancel(context.Background())
+	for _, item := range modules {
+		if background, ok := item.(starter); ok {
+			background.Start(ctx)
+		}
+	}
+
+	app := &App{config: cfg, db: db, modules: modules, cancel: cancel}
 	app.engine = app.buildRouter()
 	return app, nil
 }
@@ -63,8 +77,13 @@ func (a *App) Router() http.Handler { return a.engine }
 // DB 返回数据库连接。
 func (a *App) DB() *gorm.DB { return a.db }
 
-// Close 释放数据库连接。
-func (a *App) Close() error { return database.Close(a.db) }
+// Close 停止后台任务并释放数据库连接。
+func (a *App) Close() error {
+	if a.cancel != nil {
+		a.cancel()
+	}
+	return database.Close(a.db)
+}
 
 // buildRouter 装配全局中间件、健康检查与各模块路由。
 func (a *App) buildRouter() *gin.Engine {

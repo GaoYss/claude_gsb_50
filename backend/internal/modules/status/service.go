@@ -13,6 +13,7 @@ import (
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
 	"streetlight/internal/modules/repair"
+	"streetlight/internal/modules/warranty"
 	"streetlight/pkg/pagination"
 )
 
@@ -49,17 +50,24 @@ type TrackQuery struct {
 }
 
 // Service 提供跨模块的维修状态查询能力(只读)。
-// 作为读模型, 它直接基于 lamp / fault / repair 三张表组装视图, 避免不必要的多次往返查询。
+// 作为读模型, 它直接基于 lamp / fault / repair / warranty 表组装视图, 避免不必要的多次往返查询。
 type Service struct {
-	db      *gorm.DB
-	lamps   *lamp.Repository
-	faults  *fault.Repository
-	repairs *repair.Repository
+	db        *gorm.DB
+	lamps     *lamp.Repository
+	faults    *fault.Repository
+	repairs   *repair.Repository
+	warrantys *warranty.Repository
 }
 
 // NewService 构造维修状态查询服务。
-func NewService(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository) *Service {
-	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs}
+func NewService(
+	db *gorm.DB,
+	lamps *lamp.Repository,
+	faults *fault.Repository,
+	repairs *repair.Repository,
+	warrantys *warranty.Repository,
+) *Service {
+	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs, warrantys: warrantys}
 }
 
 // Overview 汇总维修状态看板数据。
@@ -136,6 +144,11 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 
+	warrantySummary, err := s.buildWarrantySummary(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+
 	recentFaults, err := s.faults.ListRecent(ctx, 8)
 	if err != nil {
 		return nil, err
@@ -166,6 +179,7 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 			AverageDurationHr: round2(averageDuration),
 			TotalCost:         round2(totalCost),
 		},
+		Warranty:      warrantySummary,
 		FaultByType:   topCounts(faultByType, 0),
 		FaultByLevel:  orderedCounts(faultByLevel, fault.Levels()),
 		TopRoads:      topCounts(faultByRoad, 5),
@@ -517,4 +531,40 @@ func round2(value float64) float64 {
 		value = 0
 	}
 	return math.Round(value*100) / 100
+}
+
+// buildWarrantySummary 聚合质保内维修占比与厂家响应超时数量。
+func (s *Service) buildWarrantySummary(ctx context.Context, now time.Time) (WarrantySummary, error) {
+	summary := WarrantySummary{}
+	claimTotal, err := s.warrantys.CountClaims(ctx)
+	if err != nil {
+		return summary, err
+	}
+	inWarranty, err := s.warrantys.CountInWarrantyClaims(ctx)
+	if err != nil {
+		return summary, err
+	}
+	manufacturerOpen, err := s.warrantys.CountManufacturerOpen(ctx)
+	if err != nil {
+		return summary, err
+	}
+	responseOverdue, err := s.warrantys.CountResponseOverdue(ctx, now)
+	if err != nil {
+		return summary, err
+	}
+	takenOver, err := s.warrantys.CountTakenOverClaims(ctx)
+	if err != nil {
+		return summary, err
+	}
+
+	summary.ClaimTotal = claimTotal
+	summary.InWarrantyTotal = inWarranty
+	summary.OutWarrantyTotal = claimTotal - inWarranty
+	summary.ManufacturerOpen = manufacturerOpen
+	summary.ResponseOverdue = responseOverdue
+	summary.TakenOverTotal = takenOver
+	if claimTotal > 0 {
+		summary.InWarrantyRate = math.Round(float64(inWarranty)/float64(claimTotal)*1000) / 1000
+	}
+	return summary, nil
 }

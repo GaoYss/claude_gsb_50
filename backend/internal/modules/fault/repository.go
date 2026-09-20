@@ -175,6 +175,18 @@ func (r *Repository) ListByLamp(ctx context.Context, lampID uint) ([]Fault, erro
 	return entities, nil
 }
 
+// ListByIDs 按主键批量查询故障。
+func (r *Repository) ListByIDs(ctx context.Context, ids []uint) ([]Fault, error) {
+	entities := make([]Fault, 0)
+	if len(ids) == 0 {
+		return entities, nil
+	}
+	if err := r.session(ctx).Where("id IN ?", ids).Find(&entities).Error; err != nil {
+		return nil, fmt.Errorf("批量查询故障失败: %w", err)
+	}
+	return entities, nil
+}
+
 // GetOpenByLamp 查询某盏路灯当前未闭环的故障, 不存在时返回 nil。
 func (r *Repository) GetOpenByLamp(ctx context.Context, lampID uint) (*Fault, error) {
 	var entity Fault
